@@ -106,6 +106,7 @@ const monthLabel = m => new Date(m + '-01T00:00:00Z').toLocaleDateString('ru-RU'
 const fullDate = d => d ? new Date(d + 'T00:00:00Z').toLocaleDateString('ru-RU', {timeZone:'UTC'}) : '';
 const palette = ['#514bc6','#237f86','#cf623c','#bc5490','#5276bc','#77953d','#a67a34','#925bc3','#379a91','#bc7053','#657084'];
 const imageKey = name => name.normalize('NFC').toLocaleLowerCase('ru').replaceAll('\u0451','е').replace(/[^\p{L}\p{N}]/gu,'');
+const searchText = value => value.normalize('NFC').toLocaleLowerCase('ru').replaceAll('\u0451','е').trim().replace(/\s+/g,' ');
 const categoryIcons={'Готовая еда':'prepared','Сладости':'sweets','Снеки':'snacks','Напитки':'drinks','Фрукты':'fruit','Вода':'water','База':'basic','Овощи':'vegetable','Товары для дома':'home','Аптека':'pharmacy','Услуги Груши':'service'};
 const imagePath=(name,category,images)=>images[imageKey(name)]||(categoryIcons[category]?embeddedCategoryIcons[categoryIcons[category]]:null);
 function observeChart(element, draw) {
@@ -113,6 +114,19 @@ function observeChart(element, draw) {
   observer.observe(element);
   draw();
   return () => observer.disconnect();
+}
+function clipText(selection, maxWidth) {
+  selection.each(function(){
+    const full=this.textContent;
+    if(this.getComputedTextLength()<=maxWidth)return;
+    let left=0,right=full.length;
+    while(left<right){
+      const middle=Math.ceil((left+right)/2);
+      this.textContent=full.slice(0,middle)+'...';
+      if(this.getComputedTextLength()<=maxWidth)left=middle;else right=middle-1;
+    }
+    this.textContent=full.slice(0,left)+'...';
+  });
 }
 const TrendChart = {
   props: ['data','field','color','label','format'],
@@ -146,7 +160,7 @@ function drawPrice(element, data, compact=false) {
     svg.append('g').attr('transform',`translate(${margin.left},0)`).call(d3.axisLeft(y).ticks(4).tickSize(-(w-margin.left-margin.right)).tickFormat(d=>money(d))).call(g=>g.select('.domain').remove()).call(g=>g.selectAll('line').attr('stroke','#e7eaf2')).call(g=>g.selectAll('text').attr('fill','#657084'));
   }
   const ticks=[data[0].month,data[Math.floor(data.length/2)].month,data.at(-1).month];
-  svg.append('g').attr('transform',`translate(0,${h-margin.bottom})`).call(d3.axisBottom(x).tickValues(ticks).tickSize(0).tickFormat(monthLabel)).call(g=>g.select('.domain').remove()).call(g=>g.selectAll('text').attr('fill','#657084').attr('font-size',compact?8:10).attr('dy',14));
+  svg.append('g').attr('transform',`translate(0,${h-margin.bottom})`).call(d3.axisBottom(x).tickValues([...new Set(ticks)]).tickSize(0).tickFormat(monthLabel)).call(g=>g.select('.domain').remove()).call(g=>g.selectAll('text').attr('fill','#657084').attr('font-size',compact?8:10).attr('dy',14));
   svg.append('path').datum(data).attr('fill','none').attr('stroke','#514bc6').attr('stroke-width',2).attr('d',d3.line().defined(d=>d.price!==null).x(d=>x(d.month)).y(d=>y(d.price)));
   svg.selectAll('circle').data(valid).join('circle').attr('cx',d=>x(d.month)).attr('cy',d=>y(d.price)).attr('r',compact?2.5:4).attr('fill','#514bc6').append('title').text(d=>`${monthLabel(d.month)}: ${money(d.price)} руб./шт.`);
 }
@@ -188,14 +202,14 @@ const ProductChart={
       header.append('text').attr('x',8).attr('y',20).text('ТОВАР');
       header.append('text').attr('x',nameWidth).attr('y',20).text('ШТУКИ');
       header.append('text').attr('x',nameWidth+plotWidth+gap).attr('y',20).text('ТРАТЫ, РУБ.');
-      const groups=root.selectAll('.product-row').data(props.products,d=>d.key).join('g').attr('class','product-row').attr('transform',(_,i)=>`translate(0,${34+i*rowHeight})`).attr('tabindex',0).attr('role','button').attr('aria-label',d=>`${d.name}, ${fmt(d.units)} штук, ${money(d.spend)} рублей. Открыть историю цены.`);
+      const groups=root.selectAll('.product-row').data(props.products,d=>d.key).join('g').attr('class','product-row').attr('data-product-key',d=>d.key).attr('transform',(_,i)=>`translate(0,${34+i*rowHeight})`).attr('tabindex',0).attr('role','button').attr('aria-label',d=>`${d.name}, ${fmt(d.units)} штук, ${money(d.spend)} рублей. Открыть историю цены.`);
       groups.append('rect').attr('class','row-bg').attr('width',width).attr('height',rowHeight).attr('rx',5).attr('fill','white');
       groups.append('line').attr('x1',8).attr('x2',width-4).attr('y1',rowHeight-1).attr('y2',rowHeight-1).attr('stroke','#eff1f6');
       groups.append('rect').attr('x',6).attr('y',8).attr('width',35).attr('height',35).attr('rx',6).attr('fill',d=>props.color(d.category)).attr('opacity',.12);
       groups.each(function(d){const group=d3.select(this),src=imagePath(d.name,d.category,props.images);if(src){group.append('image').attr('href',src).attr('x',7).attr('y',8).attr('width',33).attr('height',35).attr('preserveAspectRatio','xMidYMid meet');}else{group.append('text').attr('x',23).attr('y',31).attr('text-anchor','middle').attr('font-size',15).attr('fill',props.color(d.category)).text(d.name.slice(0,1));}});
-      const maxChars=Math.max(10,Math.floor((nameWidth-60)/(compact?5.6:6.2)));
-      groups.append('text').attr('x',50).attr('y',23).attr('fill','#182238').attr('font-size',compact?10:12).text(d=>d.name.length>maxChars?d.name.slice(0,maxChars-3)+'...':d.name);
+      groups.append('text').attr('x',50).attr('y',23).attr('fill','#182238').attr('font-size',compact?10:12).text(d=>d.name);
       groups.append('text').attr('x',50).attr('y',39).attr('fill','#657084').attr('font-size',9).text(d=>d.category);
+      clipText(groups.selectAll('text[x="50"]'),Math.max(10,nameWidth-58));
       for (const [field,x,start,color] of [['units',xUnits,nameWidth,'#a5b7d3'],['spend',xSpend,nameWidth+plotWidth+gap,'#514bc6']]){
         groups.append('rect').attr('x',start).attr('y',32).attr('width',plotWidth).attr('height',5).attr('fill','#f0f2f7').attr('rx',2);
         groups.append('rect').attr('x',start).attr('y',32).attr('width',d=>x(d[field])).attr('height',5).attr('fill',color).attr('rx',2);
@@ -210,7 +224,7 @@ createApp({
   components:{TrendChart,ProductChart,PriceChart},
   setup(){
     const rows=ref([]), images=ref({}), error=ref(''),loading=ref(true),sourceName=ref('Датасет первой недели, вариант C');
-    const period=ref('24'),status=ref('доставлен'),category=ref('all'),sort=ref('spend'),search=ref(''),limit=ref(12),selected=ref(null),detail=ref(null);let opener=null;
+    const period=ref('24'),status=ref('доставлен'),category=ref('all'),sort=ref('spend'),search=ref(''),limit=ref(12),selected=ref(null),detail=ref(null);let openerKey=null;
     const statuses=computed(()=>[...new Set(rows.value.map(r=>r.status))].filter(Boolean).sort());
     const allCategories=computed(()=>[...new Set(rows.value.map(r=>r.category))].sort((a,b)=>a.localeCompare(b,'ru')));
     const categoryColor=name=>palette[Math.max(0,allCategories.value.indexOf(name))%palette.length];
@@ -218,7 +232,7 @@ createApp({
     const lastDate=computed(()=>rows.value.length?rows.value.reduce((a,r)=>r.order_date>a?r.order_date:a,rows.value[0].order_date):'');
     const endMonth=computed(()=>lastDate.value.slice(0,7));
     const trendMonths=computed(()=>endMonth.value?monthRange(endMonth.value):[]);
-    const periodMonths=computed(()=>!endMonth.value?[]:period.value==='all'?monthRange(endMonth.value,(+endMonth.value.slice(0,4)-+firstDate.value.slice(0,4))*12+(+endMonth.value.slice(5)-+firstDate.value.slice(5))+1):monthRange(endMonth.value,Number(period.value)));
+    const periodMonths=computed(()=>!endMonth.value?[]:period.value==='all'?monthRange(endMonth.value,(+endMonth.value.slice(0,4)-+firstDate.value.slice(0,4))*12+(+endMonth.value.slice(5,7)-+firstDate.value.slice(5,7))+1):monthRange(endMonth.value,Number(period.value)));
     const baseRows=computed(()=>rows.value.filter(r=>status.value==='all'||r.status===status.value));
     const chosenRows=computed(()=>baseRows.value.filter(r=>category.value==='all'||r.category===category.value));
     const trends=computed(()=>monthly(chosenRows.value,trendMonths.value));
@@ -228,14 +242,14 @@ createApp({
     const categoryStats=computed(()=>categories(categoryRows.value));
     const categoryTotals=computed(()=>summarize(categoryRows.value));
     const productStats=computed(()=>products(chosenRows.value.filter(r=>periodMonths.value.includes(r.month)),periodMonths.value));
-    const filteredProducts=computed(()=>productStats.value.filter(p=>p.name.toLocaleLowerCase('ru').includes(search.value.toLocaleLowerCase('ru'))).sort((a,b)=>b[sort.value]-a[sort.value]||a.name.localeCompare(b.name,'ru')));
+    const filteredProducts=computed(()=>productStats.value.filter(p=>searchText(p.name).includes(searchText(search.value))).sort((a,b)=>b[sort.value]-a[sort.value]||a.name.localeCompare(b.name,'ru')));
     const visibleProducts=computed(()=>filteredProducts.value.slice(0,limit.value));
     const metrics=[{key:'orders',title:'Количество заказов',unit:'заказов',color:'#514bc6',format:fmt},{key:'spend',title:'Сумма трат',unit:'руб.',color:'#237f86',format:money},{key:'discount',title:'Средняя скидка',unit:'руб. / строку',color:'#cf623c',format:fmt}];
     function comparison(metric){const a=current.value[metric.key],b=trends.value.at(-2)?.[metric.key];if(a==null||b==null)return'Нет данных для сравнения с прошлым месяцем';if(b===0)return a===0?'Без изменений к прошлому месяцу':'В прошлом месяце значение равно нулю';const change=(a-b)/b*100;return(change>0?'+':'')+fmt(change)+'% к прошлому месяцу';}
     function reset(){period.value='24';status.value=statuses.value.includes('доставлен')?'доставлен':'all';category.value='all';search.value='';sort.value='spend';}
     watch([period,status,category,sort,search],()=>{limit.value=12;selected.value=null;});
-    watch(selected,async value=>{document.body.style.overflow=value?'hidden':'';await nextTick();if(value)detail.value?.focus();else opener?.focus();});
-    function inspect(product,element){opener=element;selected.value=product;}
+    watch(selected,async value=>{document.body.style.overflow=value?'hidden':'';await nextTick();if(value)detail.value?.focus();else requestAnimationFrame(()=>requestAnimationFrame(()=>{if(!selected.value)[...document.querySelectorAll('.product-row')].find(row=>row.getAttribute('data-product-key')===openerKey)?.focus();}));});
+    function inspect(product){openerKey=product.key;selected.value=product;}
     function trapFocus(event){const elements=[...detail.value.querySelectorAll('button,[href],input,[tabindex="0"]')];const first=elements[0],last=elements.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===detail.value)){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}
     function applyRows(input,name){const next=normalizeRows(input);rows.value=next;sourceName.value=name;reset();error.value='';}
     async function importFile(event){const file=event.target.files[0];if(!file)return;try{const text=await file.text();const input=file.name.toLowerCase().endsWith('.json')?JSON.parse(text):d3.dsvFormat(text.split('\n')[0].includes(';')?';':',').parse(text.replace(/^\uFEFF/,''));applyRows(input.rows||input,file.name);}catch(e){error.value=e.message;}finally{event.target.value='';}}
